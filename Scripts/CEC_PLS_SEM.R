@@ -4,7 +4,7 @@
 
 
 current_working_dir <- dirname(rstudioapi::getActiveDocumentContext()$path)
-setwd(current_working_dir)
+# setwd(current_working_dir)
 getwd()
 
 # load("DATA-R/Wsparse1.RData") # Load one simulation
@@ -23,7 +23,7 @@ Initialize_parameters<-function(X, R){
   W0 <- matrix(rnorm(J * R), nrow = J, ncol = R)
   P0_T <- matrix(rnorm(R * J), nrow = R, ncol = J)
   U <- matrix(0, nrow = J, ncol = R) # Initialize to 0
-  rho <- 1000 # penalty parameter
+  rho <- 10 # penalty parameter
   alpha <- max(eigen(t(X) %*% X)$values) #max eigen value of X^TX
   return(list(W0 = W0, P0_T = P0_T, U = U, rho = rho, alpha = alpha))
 }
@@ -33,7 +33,7 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi){
   I = dim(X)[1] # number of rows
   iter <- 0
   convAO <- 0
-  MaxIter <- 50
+  MaxIter <- 100
   
   # Get initialized parameters
   params <- Initialize_parameters(X,R)
@@ -46,6 +46,8 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi){
   T <- matrix(nrow = I, ncol = R)
   Lossc <- 1
   Lossvec <- Lossc
+  est_sim_v <- c()
+  true_sim_v <- c()
   # Loop
   while (convAO == 0) {
     
@@ -67,7 +69,12 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi){
     #Calculate loss
     Lossu <- loss_function(X,W,P_T,rho,U)
     Lossvec <- c(Lossvec,Lossu)
-    
+    # estimate_sim <- similarity_estimated(result$weights, result$loadings)
+    # cat("Estimate_sim", estimate_sim)
+    # true_sim <- similarity_true(result$weights, P_true)
+    # cat("true_sim", true_sim)
+    # est_sim_v <- c(est_sim_v, estimate_sim)
+    # true_sim_v <- c(true_sim_v, true_sim)
     #Check for convergence or if maximum iterations are reached
     if (iter > MaxIter) {
       convAO <- 1
@@ -168,9 +175,11 @@ loss_function <-function(X,W,P_T,rho,U){
   # Second term
   equality_penalty <- (rho / 2) * sum((W - t(P_T) + U)^2)
 
+  # Quardratic term 
+  quadratic <- (rho / 2) * sum((U)^2)
   
   # Adding all loss together
-  total_loss <- recon_error + equality_penalty
+  total_loss <- recon_error + equality_penalty + quadratic
   
   return(total_loss)
 }
@@ -184,6 +193,17 @@ num_correct <- function (TargetW, EstimatedW){
   total_correct <- sum(TargetW == EstimatedW) # this is the total number of variables correctedly selected and zeros correctly retained
   prop_correct <- total_correct/total_vnumber
   return(prop_correct)
+}
+
+similarity_estimated <- function(EstimatedW, EstimatedP_T){
+  P <- t(EstimatedP_T)
+  difference <- sum(abs(EstimatedW-P))
+  return(difference)
+}
+
+similarity_true <- function(EstimatedW, TrueP){
+  difference <- sum(abs(EstimatedW-TrueP))
+  return(difference)
 }
 
 # result <- CEC_PLS_SEM(X,R, epsilon = 10^-6)
@@ -207,6 +227,7 @@ for (i in 1:2) {
   # Extract data
   X <- out$X
   W_true <- out$W
+  P_true <- out$P
   R <- dim(W_true)[2]  # number of latent variables
   conditions <- Info_matrix[i, ]
   phi <- as.numeric((1-conditions[3])*dim(X)[2]*dim(X)[1])
@@ -216,13 +237,18 @@ for (i in 1:2) {
 
   # Evaluate recovery rate
   recovery_rate <- num_correct(result$weights, W_true)
-
+  estimate_sim <- similarity_estimated(result$weights, result$loadings)
+  true_sim <- similarity_true(result$weights, P_true)
+  print(abs(sum(W_true-P_true)))
   # Get sample size and number of items
   I <- nrow(X)
   J <- ncol(X)
 
   # Get simulation conditions from Info_simulation
-
+  print(W_true)
+  print(result$weights)
+  print(P_true)
+  print(result$loadings)
   # Store everything in a small data.frame
   results_list[[i]] <- data.frame(
     Dataset = i,
@@ -233,7 +259,9 @@ for (i in 1:2) {
     Condition1 = conditions[1],
     Condition2 = conditions[2],
     Condition3 = conditions[3],
-    final_loss = result$Lossvec
+    final_loss = result$Residual,
+    est_sim = estimate_sim,
+    true_sim = true_sim
   )
 
   cat("Dataset", i, "completed\n")
@@ -243,7 +271,6 @@ for (i in 1:2) {
 results_table <- do.call(rbind, results_list)
 # write.csv(results_table, "CEC_PLS_SEM_simulation_results_correct_test.csv", row.names = FALSE)
 results_table
-
 
 # m <- matrix(1:9, nrow = 3, ncol = 3)
 # m
