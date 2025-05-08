@@ -7,23 +7,24 @@ current_working_dir <- dirname(rstudioapi::getActiveDocumentContext()$path)
 # setwd(current_working_dir)
 getwd()
 
-# load("DATA-R/Wsparse1.RData") # Load one simulation
-# # install.packages("MASS") # Install the package if you haven't already
-library(MASS) # Load the package
-# X <- out$X  # Observed data (what you'd use for PLS-SEM)
-# W_true <- out$W  # Sparse weights (for study, if needed)
-# P_true <- out$P  # Loadings
-# T_true <- out$Z  # Component scores
-# R <- dim(W_true)[2]# number of latent variables
+# load("DATA-R/Wsparse1.RData")
+# # install.packages("MASS") 
+library(MASS)
+# X <- out$X
+# W_true <- out$W
+# P_true <- out$P
+# T_true <- out$Z
+# R <- dim(W_true)[2]
 
 
 Initialize_parameters<-function(X, R){
   J = dim(X)[2] # number of columns
   I = dim(X)[1] # number of rows
-  W0 <- matrix(rnorm(J * R), nrow = J, ncol = R)
-  P0_T <- matrix(rnorm(R * J), nrow = R, ncol = J)
+  svd_X <- svd(X)
+  W0 <- svd_X$v[, 1:R]
+  P0_T <- t(svd_X$u[, 1:R])
   U <- matrix(0, nrow = J, ncol = R) # Initialize to 0
-  rho <- 10 # penalty parameter
+  rho <- 1 # penalty parameter
   alpha <- max(eigen(t(X) %*% X)$values) #max eigen value of X^TX
   return(list(W0 = W0, P0_T = P0_T, U = U, rho = rho, alpha = alpha))
 }
@@ -42,6 +43,7 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi){
   U <- params$U
   rho <- params$rho
   alpha <- params$alpha
+  
   # Initialize matrices and lists
   T <- matrix(nrow = I, ncol = R)
   Lossc <- 1
@@ -75,6 +77,7 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi){
     # cat("true_sim", true_sim)
     # est_sim_v <- c(est_sim_v, estimate_sim)
     # true_sim_v <- c(true_sim_v, true_sim)
+    
     #Check for convergence or if maximum iterations are reached
     if (iter > MaxIter) {
       convAO <- 1
@@ -89,6 +92,8 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi){
     print(paste("Iteration completed:", iter))
   }
   uslpca <- list('weights' = W, 'loadings' = P_T, 'Lossvec' = Lossvec, 'Residual' = Lossu)
+  print(Lossu)
+  print(Lossvec)
   return(uslpca)
 }
 
@@ -143,20 +148,47 @@ compute_b <- function(X,W_old,P_T, alpha){
   
 }
 
+# compute_w_new <- function(X, R, P_T, b, alpha, rho, U, phi_prop) {
+#   vec_P = as.vector(t(P_T))
+#   W_new_vec <- (2 * alpha * b + rho * (vec_P - as.vector(U))) / (2 * alpha + rho)
+#   
+#   J = dim(X)[2]
+#   W_new_matrix <- matrix(W_new_vec, nrow = J, ncol = R)
+#   
+#   # Apply column-wise sparsity
+#   for (r in 1:R) {
+#     col_vec <- W_new_matrix[, r]
+#     phi_r <- floor(phi_prop * J)  # Number of non-zeros to keep in this column
+#     sorted_indices <- order(abs(col_vec), decreasing = TRUE)
+#     col_vec[sorted_indices[(phi_r + 1):J]] <- 0
+#     W_new_matrix[, r] <- col_vec
+#   }
+#   
+#   return(W_new_matrix)
+# }
+
+
 compute_w_new <- function(X, R, P_T, b, alpha, rho, U, phi_prop) {
-  vec_P = as.vector(t(P_T))
+  vec_P <- as.vector(t(P_T))
   W_new_vec <- (2 * alpha * b + rho * (vec_P - as.vector(U))) / (2 * alpha + rho)
   
-  J = dim(X)[2]
+  J <- dim(X)[2]
   W_new_matrix <- matrix(W_new_vec, nrow = J, ncol = R)
   
-  # Apply column-wise sparsity
+  # For each column, keep set the smallest (b_jr)2 + (U_jr − p_jr)2 equal to zero.
   for (r in 1:R) {
-    col_vec <- W_new_matrix[, r]
-    phi_r <- floor(phi_prop * J)  # Number of non-zeros to keep in this column
-    sorted_indices <- order(abs(col_vec), decreasing = TRUE)
-    col_vec[sorted_indices[(phi_r + 1):J]] <- 0
-    W_new_matrix[, r] <- col_vec
+    b_col <- matrix(b, nrow = J, ncol = R)[, r]
+    U_col <- matrix(U, nrow = J, ncol = R)[, r]
+    P_col <- t(P_T)[, r]
+    
+    importance_scores <- (b_col)^2 + (U_col - P_col)^2
+    
+    phi_r <- floor(phi_prop * J)
+    keep_indices <- order(importance_scores)[1:phi_r]
+    
+    mask <- rep(0, J)
+    mask[keep_indices] <- 1
+    W_new_matrix[, r] <- W_new_matrix[, r] * mask
   }
   
   return(W_new_matrix)
@@ -196,12 +228,14 @@ num_correct <- function (TargetW, EstimatedW){
 }
 
 similarity_estimated <- function(EstimatedW, EstimatedP_T){
+  # How similar the estimated weights is to the estimated factor loadings
   P <- t(EstimatedP_T)
   difference <- sum(abs(EstimatedW-P))
   return(difference)
 }
 
 similarity_true <- function(EstimatedW, TrueP){
+  # How similar is the weights to the true factor loadings
   difference <- sum(abs(EstimatedW-TrueP))
   return(difference)
 }
@@ -218,7 +252,7 @@ Info_matrix <- Infor_simulation$design_matrix_replication
 Ndatasets <- Infor_simulation$n_data_sets
 results_list <- list()
 
-for (i in 1:2) {
+for (i in 7:7) {
 
   # Load each data file
   filename <- paste0("DATA-R/Wsparse", i, ".RData")
