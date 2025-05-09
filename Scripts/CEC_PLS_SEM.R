@@ -7,7 +7,7 @@ current_working_dir <- dirname(rstudioapi::getActiveDocumentContext()$path)
 # setwd(current_working_dir)
 getwd()
 
-# load("DATA-R/Wsparse1.RData")
+# load("DATA-R/Wsparse7.RData")
 # # install.packages("MASS") 
 library(MASS)
 # X <- out$X
@@ -32,13 +32,14 @@ Initialize_parameters<-function(X, R){
 CEC_PLS_SEM <-function(X, R, epsilon, phi){
   J = dim(X)[2] # number of columns
   I = dim(X)[1] # number of rows
-  iter <- 0
+  iter <- 1
   convAO <- 0
-  MaxIter <- 100
+  MaxIter <- 1
   
   # Get initialized parameters
   params <- Initialize_parameters(X,R)
   W <- params$W0
+  print(W)
   P_T <- params$P0_T
   U <- params$U
   rho <- params$rho
@@ -92,8 +93,6 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi){
     print(paste("Iteration completed:", iter))
   }
   uslpca <- list('weights' = W, 'loadings' = P_T, 'Lossvec' = Lossvec, 'Residual' = Lossu)
-  print(Lossu)
-  print(Lossvec)
   return(uslpca)
 }
 
@@ -167,33 +166,28 @@ compute_b <- function(X,W_old,P_T, alpha){
 #   return(W_new_matrix)
 # }
 
-
 compute_w_new <- function(X, R, P_T, b, alpha, rho, U, phi_prop) {
-  vec_P <- as.vector(t(P_T))
-  W_new_vec <- (2 * alpha * b + rho * (vec_P - as.vector(U))) / (2 * alpha + rho)
-  
+  vec_P <- as.vector(t(P_T))  # Flatten P_T row-wise
+  W_new_vec <- (2 * alpha * as.vector(b) + rho * (vec_P - as.vector(U))) / (2 * alpha + rho)
   J <- dim(X)[2]
   W_new_matrix <- matrix(W_new_vec, nrow = J, ncol = R)
-  
-  # For each column, keep set the smallest (b_jr)2 + (U_jr − p_jr)2 equal to zero.
   for (r in 1:R) {
     b_col <- matrix(b, nrow = J, ncol = R)[, r]
     U_col <- matrix(U, nrow = J, ncol = R)[, r]
     P_col <- t(P_T)[, r]
-    
     importance_scores <- (b_col)^2 + (U_col - P_col)^2
-    
-    phi_r <- floor(phi_prop * J)
-    keep_indices <- order(importance_scores)[1:phi_r]
-    
+    sorted_indices <- order(importance_scores, decreasing = TRUE)
     mask <- rep(0, J)
-    mask[keep_indices] <- 1
+    print(mask)
+    print(phi_prop)
+    mask[sorted_indices[1:phi_prop]] <- 1
+    print(mask)
     W_new_matrix[, r] <- W_new_matrix[, r] * mask
+    print(W_new_matrix)
   }
   
   return(W_new_matrix)
 }
-
 
 compute_U <- function(U,W,P_T,rho){
   U_new <- U + rho*(W- t(P_T))
@@ -252,7 +246,7 @@ Info_matrix <- Infor_simulation$design_matrix_replication
 Ndatasets <- Infor_simulation$n_data_sets
 results_list <- list()
 
-for (i in 7:7) {
+for (i in 1:9) {
 
   # Load each data file
   filename <- paste0("DATA-R/Wsparse", i, ".RData")
@@ -264,7 +258,7 @@ for (i in 7:7) {
   P_true <- out$P
   R <- dim(W_true)[2]  # number of latent variables
   conditions <- Info_matrix[i, ]
-  phi <- as.numeric((1-conditions[3])*dim(X)[2]*dim(X)[1])
+  phi <- as.numeric((1-conditions[3])*dim(X)[2])
   print(phi)
   # Run your CEC-PLS-SEM model
   result <- CEC_PLS_SEM(X, R, epsilon = 10^-6, phi)
@@ -279,10 +273,10 @@ for (i in 7:7) {
   J <- ncol(X)
 
   # Get simulation conditions from Info_simulation
-  print(W_true)
-  print(result$weights)
-  print(P_true)
-  print(result$loadings)
+  # print(W_true)
+  # print(result$weights)
+  # print(P_true)
+  # print(result$loadings)
   # Store everything in a small data.frame
   results_list[[i]] <- data.frame(
     Dataset = i,
