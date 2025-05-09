@@ -246,7 +246,7 @@ Info_matrix <- Infor_simulation$design_matrix_replication
 Ndatasets <- Infor_simulation$n_data_sets
 results_list <- list()
 
-for (i in 1:9) {
+for (i in 1:54) {
 
   # Load each data file
   filename <- paste0("DATA-R/Wsparse", i, ".RData")
