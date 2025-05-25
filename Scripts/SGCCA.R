@@ -43,51 +43,6 @@ reconstruction_metrics <- function(X, W, P_T) {
   return(list(mse = mse, R2 = var_explained))
 }
 
-set.seed(123)
-
-# Set working directory
-current_working_dir <- dirname(rstudioapi::getActiveDocumentContext()$path)
-setwd(current_working_dir)
-getwd()
-
-# Load libraries
-library(RGCCA)
-library(qgraph)
-library(MASS)  # for ginv, used by your functions if needed
-
-
-evaluate_variable_selection <- function(W_true, W_estimated) {
-  # Variable Selection Metrics
-  W_true_bin <- ifelse(W_true != 0, 1, 0)
-  W_est_bin <- ifelse(W_estimated != 0, 1, 0)
-  
-  TP <- sum(W_true_bin == 1 & W_est_bin == 1)
-  FP <- sum(W_true_bin == 0 & W_est_bin == 1)
-  FN <- sum(W_true_bin == 1 & W_est_bin == 0)
-  TN <- sum(W_true_bin == 0 & W_est_bin == 0)
-  
-  precision <- TP / (TP + FP + 1e-8)
-  recall <- TP / (TP + FN + 1e-8)
-  f1_score <- 2 * (precision * recall) / (precision + recall + 1e-8)
-  accuracy <- (TP + TN) / (TP + FP + FN + TN)
-  
-  return(list(
-    precision = precision,
-    recall = recall,
-    f1 = f1_score,
-    recovery = accuracy
-  ))
-}
-
-reconstruction_metrics <- function(X, W, P_T) {
-  # Reconstruction Metrics
-  X_hat <- X %*% W %*% t(P_T)
-  error_matrix <- X - X_hat
-  mse <- mean(error_matrix^2)
-  var_explained <- 1 - (sum(error_matrix^2) / sum((X - mean(X))^2))
-  return(list(mse = mse, R2 = var_explained))
-}
-
 score_metrics <- function(est, true) {
   mae <- mean(abs(est - true))
   rmse <- sqrt(mean((est - true)^2))
@@ -225,7 +180,7 @@ for (i in 1:Ndatasets) {
     fit_sgcca <- rgcca(
       blocks = blocks,
       method = "sgcca",
-      sparsity = as.numeric(conditions[3]),
+      sparsity = as.numeric(conditions[3])*sqrt(n_vars),
       superblock = FALSE,
       ncomp = R,
       scheme = "factorial",
@@ -262,7 +217,7 @@ for (i in 1:Ndatasets) {
   # Scores and loadings
   T_scores <- fit_sgcca$Y$bl1
   P_estimated_reg <- solve(t(T_scores) %*% T_scores) %*% t(T_scores) %*% X  # R x p
-  P_estimated <- t(P_estimated_reg)  # p x R to match loadings
+  P_estimated <- X%*%T_scores  # p x R to match loadings
   
   
   # Reconstruction loss
@@ -319,6 +274,7 @@ for (i in 1:Ndatasets) {
     Condition2 = conditions[2],
     Condition3 = conditions[3],
     Final_Loss = best_loss,
+    VAFx = conditions$VAFx,
     
     # Similarity metrics
     P_vs_Ptrue_MAE = sim_p_est_p_true$mae,
