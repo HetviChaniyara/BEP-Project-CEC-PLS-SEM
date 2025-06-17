@@ -8,40 +8,16 @@ getwd()
 
 # install.packages("MASS") 
 library(MASS)
+library(gtools)
 
-Initialize_parameters <- function(X, R) {
-  J <- dim(X)[2] # number of columns
-  I <- dim(X)[1] # number of rows
-  svd_X <- svd(X)
-  
-  # SVD-based components
-  W_svd <- svd_X$v[, 1:R]
-  P_svd <- t(svd_X$u[, 1:R])
-  
-  # Random components
-  # W_rand <- matrix(rnorm(length(W_svd), mean = 0, sd = 1), nrow = nrow(W_svd))
-  # P_rand <- matrix(rnorm(length(P_svd), mean = 0, sd = 1), nrow = nrow(P_svd))
-
-  # Weighted combination: 0.7 * SVD + 0.3 * random
-  # W0 <- 0.8*W_svd + 0.2*W_rand
-  # P0_T <- 0.8*P_svd + 0.2*P_rand
-  W0 <- W_svd
-  P0_T <- P_svd
-  
-  
-  U <- matrix(0, nrow = J, ncol = R) # Initialize to 0
-  rho <- 1 # penalty parameter
-  alpha <- max(eigen(t(X) %*% X)$values) # max eigenvalue of X^TX
-  
-  return(list(W0 = W0, P0_T = P0_T, U = U, rho = rho, alpha = alpha))
-}
-
+# CEC-PLS-SEM Full Update Procedure
 CEC_PLS_SEM <-function(X, R, epsilon, phi){
+  
   J = dim(X)[2] # number of columns
   I = dim(X)[1] # number of rows
   iter <- 0
   convAO <- 0
-  MaxIter <- 150
+  MaxIter <- 150 # Change accordingly
   
   # Get initialized parameters
   params <- Initialize_parameters(X,R)
@@ -55,9 +31,8 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi){
   T_scores <- matrix(nrow = I, ncol = R)
   Lossc <- 1
   Lossvec <- Lossc
-  est_sim_v <- c()
-  true_sim_v <- c()
-  # Loop
+  
+  # Update Loop
   while (convAO == 0) {
     
     # Update component scores
@@ -71,10 +46,10 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi){
     
     # Update weights
     W <- compute_w_new(X, R, P_T, b, alpha, rho, U, phi)
-    
+
     # Update scaled variable
     U <- compute_U(U, W, P_T, rho)
-    
+
     # Calculate loss
     Lossu <- loss_function(X,W,P_T,rho,U)
     Lossvec <- c(Lossvec,Lossu)
@@ -88,15 +63,47 @@ CEC_PLS_SEM <-function(X, R, epsilon, phi){
       convAO <- 1
       cat("convergence")
     }
+    
     print(paste("Iteration completed:", iter))
     iter <- iter + 1
     Lossc <- Lossu
   }
-  uslpca <- list('weights' = W, 'loadings' = P_T, 'Lossvec' = Lossvec, 'Residual' = Lossu, 'Scores'= T_scores, 'n_iterations'= iter)
-  return(uslpca)
+  results <- list('weights' = W, 'loadings' = P_T, 'Lossvec' = Lossvec, 'Residual' = Lossu, 'Scores'= T_scores, 'n_iterations'= iter)
+  return(results)
+}
+
+########################################################################################################################################
+# Helper Functions
+
+Initialize_parameters <- function(X, R) {
+  
+  J <- dim(X)[2] # number of columns
+  I <- dim(X)[1] # number of rows
+  svd_X <- svd(X)
+  
+  # SVD-based components
+  W_svd <- svd_X$v[, 1:R]
+  P_svd <- t(svd_X$u[, 1:R])
+  W0 <- W_svd
+  P0_T <- P_svd
+  
+  # Random components
+  # W_rand <- matrix(rnorm(length(W_svd), mean = 0, sd = 1), nrow = nrow(W_svd))
+  # P_rand <- matrix(rnorm(length(P_svd), mean = 0, sd = 1), nrow = nrow(P_svd))
+  
+  # Weighted combination: 0.7 * SVD + 0.3 * random
+  # W0 <- 0.8*W_svd + 0.2*W_rand
+  # P0_T <- 0.8*P_svd + 0.2*P_rand
+  
+  U <- matrix(0, nrow = J, ncol = R) # Initialize to 0
+  rho <- 1 # penalty parameter
+  alpha <- max(eigen(t(X) %*% X)$values) # max eigenvalue of X^TX
+  
+  return(list(W0 = W0, P0_T = P0_T, U = U, rho = rho, alpha = alpha))
 }
 
 compute_P_new_T <- function(X, W, T_scores, U, rho) {
+  
   # Calculate X^T XW
   XtXW <- t(X) %*% T_scores
   
@@ -123,6 +130,7 @@ compute_P_new_T <- function(X, W, T_scores, U, rho) {
 }  
 
 compute_b <- function(X,W_old,P_T, alpha){
+  
   # Vectorized form of W and X
   vec_W = as.vector(W_old)
   vec_X = as.vector(X)
@@ -149,10 +157,13 @@ compute_b <- function(X,W_old,P_T, alpha){
 }
 
 compute_w_new <- function(X, R, P_T, b, alpha, rho, U, phi_prop) {
+  
   vec_P <- as.vector(t(P_T))  # Flatten P_T row-wise
   W_new_vec <- (2 * alpha * as.vector(b) + rho * (vec_P - as.vector(U))) / (2 * alpha + rho)
   J <- dim(X)[2]
-  W_new_matrix <- matrix(W_new_vec, nrow = J, ncol = R)
+  W_new_matrix <- matrix(W_new_vec, nrow = J, ncol = R) # Reconstruct into a matrix
+  
+  # Coefficients with smallest bjr^2 + (Ujr-Pjr)^2 set to 0
   for (r in 1:R) {
     b_col <- matrix(b, nrow = J, ncol = R)[, r]
     U_col <- matrix(U, nrow = J, ncol = R)[, r]
@@ -168,19 +179,27 @@ compute_w_new <- function(X, R, P_T, b, alpha, rho, U, phi_prop) {
 }
 
 compute_U <- function(U,W,P_T,rho){
+  
+  # Update U
   U_new <- U + rho*(W- t(P_T))
+  
   return(U_new)
 }
 
 loss_function <-function(X,W,P_T,rho,U){
+  
+  # Loss function
   total_loss <- sum((X - X %*% W %*% P_T)^2)
+  
   return(total_loss)
 }
 
-## Evaluation Metrics
+###############################################################################################################################
+# Evaluation Metrics Functions
 
 evaluate_variable_selection <- function(W_true, W_estimated) {
-  # Variable Selection Metrics
+  
+  # Checking which and how many coefficients are exactly 0
   W_true_bin <- ifelse(W_true != 0, 1, 0)
   W_est_bin <- ifelse(W_estimated != 0, 1, 0)
   
@@ -194,33 +213,65 @@ evaluate_variable_selection <- function(W_true, W_estimated) {
   f1_score <- 2 * (precision * recall) / (precision + recall + 1e-8)
   accuracy <- (TP + TN) / (TP + FP + FN + TN)
   
-  return(list(
-    precision = precision,
-    recall = recall,
-    f1 = f1_score,
-    recovery = accuracy
-  ))
+  return(list(precision = precision,recall = recall,f1 = f1_score,recovery = accuracy))
 }
 
 reconstruction_metrics <- function(X, W, P_T) {
+  
   # Reconstruction Metrics
   X_hat <- X %*% W %*% P_T
   error_matrix <- X - X_hat
   mse <- mean(error_matrix^2)
   var_explained <- 1 - (sum(error_matrix^2) / sum((X - mean(X))^2))
+  
   return(list(mse = mse, R2 = var_explained))
 }
 
 score_metrics <- function(est, true) {
-  # General Function
+  
+  # General Function For MAE, RMSE and Corrleation
   mae <- mean(abs(est - true))
   rmse <- sqrt(mean((est - true)^2))
   corrs <- diag(cor(est, true))  # assumes same column order
   avg_corr <- mean(corrs)
+  
   return(list(mae = mae, rmse = rmse, correlation = avg_corr))
 }
 
+align_components <- function(est, true) {
+  
+  # Try combinations to see which estimated composite is corresponding one in the true matrix
+  n_comp <- ncol(true)
+  perm <- permutations(n_comp, n_comp)
+  
+  best_perm <- NULL
+  best_score <- Inf
+  
+  # Selects permutation with best score and returns that order of composites
+  for (i in 1:nrow(perm)) {
+    aligned_est <- est[, perm[i, ]]
+    
+    # Flip signs for best match
+    for (j in 1:n_comp) {
+      if (cor(aligned_est[, j], true[, j]) < 0) {
+        aligned_est[, j] <- -aligned_est[, j]
+      }
+    }
+    
+    score <- sum((aligned_est - true)^2)  # total squared error
+    if (score < best_score) {
+      best_score <- score
+      best_perm <- aligned_est
+    }
+  }
+  
+  return(best_perm)
+}
+
+
 compute_bias_variance_mse <- function(W_true, W_est) {
+  
+  # Compute bias, variance and MSE
   W_true_vec <- as.vector(W_true)
   W_est_vec <- as.vector(W_est)
   bias <- mean(W_est_vec - W_true_vec)
@@ -231,18 +282,24 @@ compute_bias_variance_mse <- function(W_true, W_est) {
 }
 
 explained_variance <- function(X, T_scores) {
+  
+  # Calculates the explained variance of the factor scores in ratio to the total variation in X
   total_var <- sum(apply(X, 2, var))
   comp_vars <- apply(T_scores, 2, var)
   return(comp_vars / total_var)
 }
 
 sparsity_level <- function(W) {
+  
+  # Checks the sparsity of the parameter
   total_elements <- length(W)
   zero_elements <- sum(W == 0)
   return(zero_elements / total_elements)
 }
 
 compute_AVE <- function(X, T_scores) {
+  
+  # Computes AVE
   R <- ncol(T_scores)
   AVEs <- numeric(R)
   
@@ -267,6 +324,8 @@ compute_AVE <- function(X, T_scores) {
 
 
 compute_CR <- function(X, T_scores) {
+  
+  # Computes Composite Reliability
   R <- ncol(T_scores)
   CRs <- numeric(R)
   
@@ -287,6 +346,8 @@ compute_CR <- function(X, T_scores) {
 }
 
 compute_fornell_larcker_values <- function(X, T_scores) {
+  
+  # Calculates Fornell-larcker criteria and stores it as three variables instead of a matrix
   AVE_result <- compute_AVE(X, T_scores)
   AVEs <- AVE_result$AVE
   inter_corr <- cor(T_scores)[1, 2]  # correlation between Comp1 and Comp2
@@ -300,126 +361,3 @@ compute_fornell_larcker_values <- function(X, T_scores) {
   return(values)
 }
 
-n_multistarts <- 3
-base_seed <- 100
-
-# load("Data-R-W-Sparse/Info_simulation.RData") # Contains design information
-Infor_matrix <- Infor_simulation$design_matrix_replication
-Ndatasets <- Infor_simulation$n_data_sets
-results_list <- list()
-
-for (i in 1:Ndatasets) {
-  if (i %% 3 == 0) {
-    cat("Skipping dataset", i, "because it is divisible by 3\n")
-    next  # skip to the next iteration
-  }
-  
-  filename <- paste0("DATA-R-P-Sparse/Psparse", i, ".RData")
-  load(filename)
-  print("hello")
-  # Extract data
-  X <- out$X
-  W_true <- out$W
-  P_true <- out$P
-  T_true <- out$Z
-  R <- dim(W_true)[2]
-  conditions <- Infor_matrix[i, ]
-  phi <- as.numeric((1 - conditions[3]) * dim(X)[2])
-  print("indentified")
-  # MULTISTART IMPLEMENTATION
-  best_result <- NULL
-  best_loss <- Inf
-  
-  FL_matrix_list <- list()
-  
-  for (m in 1:n_multistarts) {
-    set.seed(base_seed + m)  # optional for reproducibility
-    print("started")
-    result <- CEC_PLS_SEM(X, R, epsilon = 1e-6, phi)
-    
-    if (result$Residual < best_loss) {
-      best_loss <- result$Residual
-      best_result <- result
-    }
-  }
-  
-  # Unified similarity metrics using score_metrics
-  sim_weights_loadings <- score_metrics(best_result$weights, t(best_result$loadings))
-  sim_weights_true <- score_metrics(best_result$weights, W_true)
-  sim_scores_true <- score_metrics(best_result$Scores, T_true)
-  sim_p_est_p_true <- score_metrics(t(best_result$loadings), P_true)
-  
-  # Reconstruction, AVE/CR, and selection metrics
-  bias_var_mse <- compute_bias_variance_mse(W_true, best_result$weights)
-  expl_var <- explained_variance(X, best_result$Scores)
-  sparsity <- sparsity_level(best_result$weights)
-  AVE_scores <- compute_AVE(X, best_result$Scores)
-  CR_scores <- compute_CR(X, best_result$Scores)
-  FL_values <- compute_fornell_larcker_values(X, best_result$Scores)
-  
-  recon_metrics <- reconstruction_metrics(X, best_result$weights, best_result$loadings)
-  selection_eval <- evaluate_variable_selection(W_true, best_result$weights)
-  
-  # Store all results in consistent format
-  results_list[[i]] <- data.frame(
-    Dataset = i,
-    n_variables = conditions$n_variables,
-    s_size = conditions$s_size,
-    p_sparse = conditions$p_sparse,
-    n_components = conditions$n_components,
-    VAFx = conditions$VAFx,
-    Final_Loss = best_result$Residual,
-    Num_Iterations = best_result$n_iterations,
-    
-    
-    # Similarity metrics)
-    P_vs_Ptrue_MAE = sim_p_est_p_true$mae,
-    P_vs_Ptrue_RMSE = sim_p_est_p_true$rmse,
-    P_vs_Ptrue_Corr = sim_p_est_p_true$correlation,
-    
-    W_vs_Loadings_MAE = sim_weights_loadings$mae,
-    W_vs_Loadings_RMSE = sim_weights_loadings$rmse,
-    W_vs_Loadings_Corr = sim_weights_loadings$correlation,
-    
-    W_vs_Wtrue_MAE = sim_weights_true$mae,
-    W_vs_Wtrue_RMSE = sim_weights_true$rmse,
-    W_vs_Wtrue_Corr = sim_weights_true$correlation,
-    
-    Score_vs_True_MAE = sim_scores_true$mae,
-    Score_vs_True_RMSE = sim_scores_true$rmse,
-    Score_vs_True_Corr = sim_scores_true$correlation,
-    
-    # Reconstruction
-    MSE_Recon = recon_metrics$mse,
-    R2_Recon = recon_metrics$R2,
-    
-    # Selection
-    Precision = selection_eval$precision,
-    Recall = selection_eval$recall,
-    F1_Score = selection_eval$f1,
-    Recovery = selection_eval$recovery,
-    
-    # Bias-variance-MSE
-    Bias = bias_var_mse$bias,
-    Variance = bias_var_mse$variance,
-    MSE_Weights = bias_var_mse$mse,
-    
-    # Other
-    Explained_Var1 = expl_var[1],
-    Explained_Var2 = ifelse(length(expl_var) >= 2, expl_var[2], NA),
-    Sparsity = sparsity,
-    AVE1 = AVE_scores$AVE[1],
-    CR1 = CR_scores[1],
-    AVE2 = ifelse(length(AVE_scores) >= 2, AVE_scores$AVE[2], NA),
-    AVE_zero = AVE_scores$num_zero_variance_columns,
-    CR2 = ifelse(length(CR_scores) >= 2, CR_scores[2], NA),
-    Comp1_sqrtAVE = FL_values$Comp1_sqrtAVE,
-    Comp2_sqrtAVE = FL_values$Comp2_sqrtAVE,
-    Correlation_Comp1_Comp2 = FL_values$Correlation_Comp1_Comp2
-  )
-  cat("Dataset", i, "completed with best loss =", best_result$Residual, "\n")
-}
-
-results_table <- do.call(rbind, results_list)
-write.csv(results_table, "CEC_PLS_SEM_P_Spase_updated_all_except_3s_svd_only.csv", row.names = FALSE)
-results_table
