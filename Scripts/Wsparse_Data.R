@@ -1,11 +1,5 @@
-# W sparse using foreach
-# Rosember Guerra
-# 15-09-2019
+# W sparse data script adapted from Rosember Guerra 15-09-2019
 
-# W sparse using foreach
-# Rosember Guerra
-# 15-09-2019
-# 
 # install.packages("doParallel")    # Install doParallel package
 # install.packages("MASS")          # Install MASS package
 # install.packages("mvtnorm")       # Install mvtnorm package
@@ -89,7 +83,7 @@ results_sim1_data1 <- foreach(i=1:nrow(design_matrix_replication),
                                 # P = t(X)%*%ginv(t(Z))
                                 # Psvd = svd((t(X)%*%X)%*%W)
                                 # P = Psvd$u%*%t(Psvd$v)
-                                P <- W
+                                P <- W # The only thing changed
                                 # 7. 
                                 Xtrue =  Z%*%t(P)
                                 

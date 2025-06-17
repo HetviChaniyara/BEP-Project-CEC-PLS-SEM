@@ -1,6 +1,4 @@
-# P sparse using foreach
-# Rosember Guerra
-# 15-09-2019
+# P sparse data script adapted from Rosember Guerra 15-09-2019
 
 # install.packages("doParallel")    # Install doParallel package
 # install.packages("MASS")          # Install MASS package
@@ -86,7 +84,7 @@ results_sim1_data1 <- foreach(i=1:nrow(design_matrix_replication),
                                 P = P%*%diag(svd1$d[1:R])
                                 Xtrue = TruecScores%*%t(P)
                                 # W = ginv(Xtrue)%*%TruecScores
-                                W = P
+                                W = P # Only change
                                 # Adding noice
                                 SSqXtrue =  sum(Xtrue^2)                        # sum squares of the data set
                                 EX = mvrnorm(I,mu= rep(0,J),Sigma = diag(1,J))  # EX = Error of X
